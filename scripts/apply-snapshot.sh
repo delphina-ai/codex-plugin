@@ -56,11 +56,11 @@ unzip -q -o "$archive" -d "$staging/tree"
 info="$staging/tree/sync-info.json"
 
 # The directory layout inside the snapshot is a contract between the server that
-# builds it and this plugin, which tells Claude where to grep. They ship from
-# different repositories on different cadences, and plugin auto-update is off by
-# default for third-party marketplaces — so a server-side layout change would
-# otherwise land as "Claude can no longer find your metrics", with nothing
-# reporting an error. Refuse a layout this version does not know.
+# builds it and this plugin, which tells Codex where to grep. They ship from
+# different repositories on different cadences, and Codex only refreshes a
+# marketplace when someone runs `codex plugin marketplace upgrade` — so a
+# server-side layout change would otherwise land as "Codex can no longer find
+# your metrics", with nothing reporting an error. Refuse a layout this version does not know.
 SUPPORTED_LAYOUTS=" 1 "
 layout=""
 if [[ -f "$info" ]]; then
@@ -77,8 +77,8 @@ if [[ "$SUPPORTED_LAYOUTS" != *" $layout "* ]]; then
   echo "This knowledge-base snapshot uses layout version $layout, which this" >&2
   echo "version of the Delphina plugin cannot read. Update the plugin:" >&2
   echo >&2
-  echo "  claude plugin marketplace update delphina" >&2
-  echo "  claude plugin update delphina@delphina" >&2
+  echo "  codex plugin marketplace upgrade delphina" >&2
+  echo "  codex plugin add delphina@delphina" >&2
   exit 1
 fi
 
