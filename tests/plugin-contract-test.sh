@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Structural checks on the plugin itself.
 #
-# `claude plugin validate` covers manifest shape. What it cannot see is whether
-# the pieces still refer to each other correctly: a hook that names a script
-# which was renamed, a skill that documents a flag the script stopped accepting,
-# a script that lost its executable bit. Each of those fails at run time, on a
-# customer's machine, and silently — a hook's failures are swallowed by design.
+# CI installs the plugin into a throwaway Codex home, which covers manifest
+# shape. What that cannot see is whether the pieces still refer to each other
+# correctly: a skill that names a script which was renamed, a skill that
+# documents a flag the script stopped accepting, a script that lost its
+# executable bit. Each of those fails at run time, on a customer's machine, in
+# the middle of a task.
 set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,64 +23,42 @@ check() {
   fi
 }
 
-# --- hooks point at scripts that exist and can run -------------------------
-echo "hooks resolve to runnable scripts"
-hook_commands="$(
-  python3 - "$root/hooks/hooks.json" <<'PY'
-import json, re, sys
+# --- the manifests agree with each other and with the tree ------------------
+echo "manifests agree and point at files that exist"
+# Codex reads two manifests: the marketplace that lists the plugin and the
+# plugin's own. A rename in one leaves `codex plugin add delphina@delphina`
+# failing at install time, which is the first thing a new user runs.
+while IFS='=' read -r label result; do
+  [[ -z "$label" ]] && continue
+  check "$label" "yes" "$result"
+done <<<"$(
+  python3 - "$root" <<'PY'
+import json, os, sys
 
-with open(sys.argv[1]) as fh:
-    doc = json.load(fh)
+root = sys.argv[1]
+with open(os.path.join(root, ".codex-plugin/plugin.json")) as fh:
+    plugin = json.load(fh)
+with open(os.path.join(root, ".agents/plugins/marketplace.json")) as fh:
+    market = json.load(fh)
 
-for handlers in doc.get("hooks", {}).values():
-    for group in handlers:
-        for hook in group.get("hooks", []):
-            command = hook.get("command", "")
-            # Strip the ${CLAUDE_PLUGIN_ROOT} prefix and any quoting around it.
-            match = re.search(r"/(scripts/[A-Za-z0-9_.-]+)", command)
-            if match:
-                print(match.group(1))
+entries = [p for p in market.get("plugins", []) if p.get("name") == plugin["name"]]
+yes = lambda ok: "yes" if ok else "no"
+print(f"marketplace lists the plugin by its manifest name={yes(len(entries) == 1)}")
+source = entries[0].get("source", {}) if entries else {}
+print(f"marketplace entry is the repository root={yes(source.get('path') == './')}")
+for field in ("skills", "mcpServers"):
+    path = plugin.get(field, "")
+    print(f"plugin.json {field} path exists={yes(bool(path) and os.path.exists(os.path.join(root, path)))}")
 PY
 )"
 
-check "at least one hook is registered" "yes" \
-  "$([[ -n "$hook_commands" ]] && echo yes || echo no)"
-
-while read -r rel; do
-  [[ -z "$rel" ]] && continue
-  check "$rel exists" "yes" "$([[ -f "$root/$rel" ]] && echo yes || echo no)"
-  check "$rel is executable" "yes" "$([[ -x "$root/$rel" ]] && echo yes || echo no)"
-  # Git tracks the bit, but a contributor on a filesystem that does not can drop
-  # it, and a hook whose command is not executable fails on every single turn.
-  check "$rel is executable in git" "100755" \
-    "$(cd "$root" && git ls-files -s "$rel" 2>/dev/null | awk '{print $1}')"
-done <<<"$hook_commands"
-
-# --- the manifest leaves the conventional hooks file alone -----------------
-echo "the manifest does not redeclare hooks/hooks.json"
-# Claude Code loads hooks/hooks.json by convention, on its own. The manifest's
-# `hooks` field is for *additional* files, so naming the conventional one there
-# asks for the same file twice and the second load is refused: "Duplicate hooks
-# file detected". 0.5.2 shipped that, and it surfaced as a load error on every
-# `/plugin` screen. `claude plugin validate --strict` passes either way — the
-# manifest is well formed, it just says something redundant — so nothing but
-# this check stands between the mistake and a release.
-check "manifest leaves hooks/hooks.json to the convention" "yes" \
-  "$(
-    python3 - "$root/.claude-plugin/plugin.json" <<'PY'
-import json, sys
-
-with open(sys.argv[1]) as fh:
-    declared = json.load(fh).get("hooks", [])
-
-# The field takes either a single path or a list of them.
-if isinstance(declared, str):
-    declared = [declared]
-
-redundant = any(e.removeprefix("./") == "hooks/hooks.json" for e in declared)
-print("no" if redundant else "yes")
-PY
-  )"
+# --- the MCP URL is literal -------------------------------------------------
+echo "the MCP server URL needs no expansion"
+# Claude Code expands ${VAR:-default} in .mcp.json; nothing says Codex does, and
+# `codex mcp list` shows such a value verbatim. A literal URL removes the
+# question. Developers override it with `-c mcp_servers.delphina.url=...`.
+check "delphina points at production" "https://app.delphina.ai/api/mcp" \
+  "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["mcpServers"]["delphina"]["url"])' "$root/.mcp.json")"
 
 # --- every script is executable --------------------------------------------
 echo "all shipped scripts are executable"
@@ -103,69 +82,33 @@ while read -r flag; do
     "$(grep -qx -- "$flag" <<<"$accepted" && echo yes || echo no)"
 done <<<"$documented"
 
-# --- the setup command names the paths the uploader actually uses ----------
-echo "setup command matches the uploader's state layout"
-for path in ".delphina/traces.json" ".delphina/credentials" ".delphina/offsets"; do
-  check "setup mentions $path" "yes" \
-    "$(grep -qF "$path" "$root/commands/setup.md" && echo yes || echo no)"
-  check "the uploader actually uses $(basename "$path")" "yes" \
-    "$(grep -qF "$(basename "$path")" "$root/scripts/upload-transcript.sh" && echo yes || echo no)"
+# --- skills reach scripts by path, not by environment variable -----------
+echo "skills refer to scripts by a path that resolves"
+# Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} in skill text. Codex sets
+# PLUGIN_ROOT for hooks only, so a skill that names a script through either
+# variable hands the model a command that cannot run. Skills name scripts
+# relative to their own SKILL.md, and Codex tells the model where that file is.
+for skill in "$root"/skills/*/SKILL.md; do
+  rel="${skill#"$root"/}"
+  check "$rel names no script through an environment variable" "0" \
+    "$(grep -cE '\$\{?(CLAUDE_)?PLUGIN_ROOT' "$skill" || true)"
+  while read -r ref; do
+    [[ -z "$ref" ]] && continue
+    check "$rel: $ref resolves" "yes" \
+      "$([[ -x "$(dirname "$skill")/$ref" ]] && echo yes || echo no)"
+  done <<<"$(grep -oE '\.\./\.\./scripts/[A-Za-z0-9_.-]+' "$skill" | sort -u)"
 done
 
-# --- setup's credential story stays internally consistent ------------------
-echo "setup documents the minted credential end to end"
-# The token is minted by an MCP tool and its id recorded locally so the NEXT run
-# can retire it. Three places have to agree, and a half-updated doc is the
-# realistic failure: it leaves live credentials on the server forever.
-check "setup names the minting tool" "yes" \
-  "$(grep -qF 'create_trace_upload_token' "$root/commands/setup.md" && echo yes || echo no)"
-check "setup passes the recorded id back as replaces_token_id" "yes" \
-  "$(grep -qF 'replaces_token_id' "$root/commands/setup.md" && echo yes || echo no)"
-# token-id has three distinct roles, and each is checked on its own. A count
-# threshold would not do: the file is mentioned four times, so dropping the
-# teardown line still cleared any count that also passed before.
-check "setup writes the id" "yes" \
-  "$(grep -qE 'value into .~/\.delphina/token-id' "$root/commands/setup.md" && echo yes || echo no)"
-check "setup reads the id back on a repeat run" "yes" \
-  "$(grep -qE 'cat ~/\.delphina/token-id' "$root/commands/setup.md" && echo yes || echo no)"
-check "teardown removes the id" "yes" \
-  "$(grep -qE '^rm -f .*\.delphina/token-id' "$root/commands/setup.md" && echo yes || echo no)"
-
-# --- the uploader can never fail a turn ------------------------------------
-echo "the uploader cannot fail a user's turn"
-# Exit code 2 from a Stop hook means "do not stop", which traps the user in a
-# loop. The behavioural tests cover the paths that exist today; this catches a
-# newly added `exit 1` that no test happens to reach.
-# Matches anywhere on the line, not just at its start: the realistic mistake is
-# `|| exit 1` appended to a guard, not a bare statement. Comment lines are
-# excluded so prose about exit codes does not trip it.
-check "no non-zero exit anywhere in the uploader" "0" \
-  "$(grep -vE '^\s*#' "$root/scripts/upload-transcript.sh" | grep -cE 'exit [1-9]' || true)"
-
-# --- the reported client version matches the manifest ----------------------
-echo "the uploader reports the version it actually is"
-# `clientVersion` exists so we can identify a bad client in the field. It is a
-# separate constant in the uploader, and it silently went stale for the whole
-# 0.2.0 line — every upload claimed 0.1.0, which made the field useless for the
-# one job it has. A release that bumps the manifest and forgets the script now
-# fails here instead of shipping.
-manifest_version="$(
-  python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' \
-    "$root/.claude-plugin/plugin.json" 2>/dev/null || echo unknown
-)"
-script_version="$(
-  sed -n 's/^VERSION="\(.*\)"$/\1/p' "$root/scripts/upload-transcript.sh" | head -1
-)"
-check "uploader VERSION matches plugin.json" "$manifest_version" "$script_version"
-
-# --- the debug log never interpolates a secret -----------------------------
-echo "the debug log cannot be handed a secret"
-# Whether the log is opt-in, and whether it stays free of the token in practice,
-# are behavioural and live in tests/upload-transcript-test.sh. This is the
-# static half: it catches a *newly added* dlog call that passes the token or the
-# request body, on a path no behavioural test happens to reach.
-check "no dlog call passes the token or body" "0" \
-  "$(grep -cE 'dlog .*\$\{?(TOKEN|BODY|BODY_OUT|PAYLOAD)\b' "$root/scripts/upload-transcript.sh" || true)"
+# --- skill names match their directories -----------------------------------
+echo "skill names match their directories"
+# Codex lists a skill under its frontmatter name, namespaced by the plugin
+# (delphina:sync-knowledge). Skills refer to each other by that name, so a
+# directory rename that leaves the name behind breaks the reference silently.
+for skill in "$root"/skills/*/SKILL.md; do
+  dir="$(basename "$(dirname "$skill")")"
+  check "skills/$dir is named $dir" "$dir" \
+    "$(sed -n 's/^name: *//p' "$skill" | head -1)"
+done
 
 echo
 if [[ "$failures" -gt 0 ]]; then

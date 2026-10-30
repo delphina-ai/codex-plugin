@@ -11,7 +11,7 @@ Pull a workspace's knowledge base to disk so you can read and grep it locally.
 
 Do it once at the start of a session where the user's questions depend on their
 data model — metric definitions, table semantics, business rules. After that the
-knowledge base is just files, and normal Read/Grep answer follow-ups with no
+knowledge base is just files, and reading and grepping them answers follow-ups with no
 further round-trips.
 
 Do not sync before every question. The knowledge base changes on the order of
@@ -61,10 +61,12 @@ by id.
 - `unchanged: true` — the local copy is current. Stop here; do not re-download.
 - `commit_sha: null` — this workspace has no knowledge base yet. Tell the user
   rather than reporting a successful sync of nothing.
-- Otherwise, install the snapshot:
+- Otherwise, install the snapshot with `apply-snapshot.sh`. It ships with this
+  plugin at `../../scripts/apply-snapshot.sh`, relative to this `SKILL.md`. Run
+  it by that file's absolute path, from the user's project directory:
 
 ```bash
-"${CLAUDE_PLUGIN_ROOT}/scripts/apply-snapshot.sh" \
+<plugin-root>/scripts/apply-snapshot.sh \
   --url '<archive_url>' \
   --workspace '<workspace_id>' \
   --snapshot '<snapshot_id>'
@@ -73,6 +75,17 @@ by id.
 Quote `archive_url` — presigned URLs contain `&` and will otherwise be split by
 the shell. The URL expires about 15 minutes after it is issued; if it has gone
 stale, call `sync_knowledge` again rather than retrying the download.
+
+**Run this command with `sandbox_permissions: "require_escalated"` on the first
+attempt.** It downloads the archive from Amazon S3, and Codex's default sandbox
+has no network access. Do not try it inside the sandbox first: the failure costs
+a round trip, and the URL may expire while the user approves the retry.
+
+- `justification`: "Download the Delphina knowledge base snapshot", so the user
+  knows what they are approving.
+- `prefix_rule`: the script's absolute path alone, so the user can approve this
+  script once instead of on every sync. Never include the URL: it changes every
+  time and carries a credential.
 
 If the script reports that the snapshot's layout version is not supported, the
 plugin is older than the Delphina deployment. Relay the update commands it

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-  # Claude Code ships frequently and validation tightens over time. A weekly run
+  # Codex ships frequently and its plugin loader is still changing. A weekly run
   # surfaces a manifest that a newer release started rejecting, rather than
   # letting customers hit it at install time.
   schedule:
@@ -16,48 +16,23 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: Install Claude Code
-        # Retried because this is a network fetch on the critical path of every
-        # run, and a transient reset here fails the build for reasons that have
-        # nothing to do with the change under test. Seen in practice:
-        # `curl: (35) Recv failure: Connection reset by peer`.
-        run: |
-          for attempt in 1 2 3; do
-            if curl -fsSL --retry 3 --retry-all-errors --connect-timeout 15 \
-                 https://claude.ai/install.sh | bash; then
-              break
-            fi
-            if [ "$attempt" = 3 ]; then
-              echo "Claude Code install failed after 3 attempts" >&2
-              exit 1
-            fi
-            sleep $((attempt * 5))
-          done
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
 
-      - name: Report version
-        run: claude --version
+      - name: Install Codex
+        # Unpinned on purpose: the point of the weekly run is to test the
+        # release customers are installing now.
+        run: npm install --global @openai/codex
 
-      - name: Validate plugin manifest
-        run: claude plugin validate --strict .claude-plugin/plugin.json
-
-      - name: Validate marketplace manifest
-        run: claude plugin validate --strict .
-
-      # plugin.json and the marketplace entry can drift apart on a release.
-      # `plugin tag` refuses to tag when they disagree, so a dry run of the
-      # agreement check belongs on every PR.
-      - name: Check manifests agree
-        run: claude plugin tag --dry-run .
+      - name: Install the plugin into a throwaway Codex home
+        run: tests/codex-install-test.sh
 
       - name: Shell lint
-        run: shellcheck scripts/*.sh
+        run: shellcheck scripts/*.sh tests/*.sh
 
       - name: Snapshot install tests
         run: tests/apply-snapshot-test.sh
-
-      - name: Transcript uploader tests
-        run: tests/upload-transcript-test.sh
 
       - name: Plugin contract tests
         run: tests/plugin-contract-test.sh

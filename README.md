@@ -1,16 +1,16 @@
-# Delphina for Claude Code
+# Delphina for Codex
 
 Ask [Delphina](https://delphina.ai)'s analytics agent data questions without leaving
-your terminal. This plugin bundles the Delphina MCP server configuration, so
-connecting is one command instead of hand-editing an MCP config.
+Codex. This plugin bundles the Delphina MCP server configuration, so connecting is
+a few commands instead of hand-editing `config.toml`.
 
-Once installed, Claude Code can start a Delphina chat, send follow-up messages,
-pull back results, and file issues — the same agent you get in the web app and in
+Once installed, Codex can start a Delphina chat, send follow-up messages, pull
+back results, and file issues — the same agent you get in the web app and in
 Slack. Delphina answers using your team's warehouse and curated knowledge base;
-Claude Code sees the answers, not the underlying data.
+Codex sees the answers, not the underlying data.
 
 It can also sync your **knowledge base** — the curated metrics, tables, notes, and
-rules Delphina reasons over — to a local folder, so Claude can grep your team's
+rules Delphina reasons over — to a local folder, so Codex can grep your team's
 definitions directly instead of asking one question at a time. See
 [Knowledge sync](#knowledge-sync).
 
@@ -18,55 +18,51 @@ definitions directly instead of asking one question at a time. See
 > organization. Ask your Delphina administrator if you are not sure whether you
 > have access.
 
+Using Claude Code? Install [`delphina-ai/claude-plugin`](https://github.com/delphina-ai/claude-plugin)
+instead.
+
 ## Install
 
 ```bash
-claude plugin marketplace add delphina-ai/claude-plugin
-claude plugin install delphina@delphina
+codex plugin marketplace add delphina-ai/codex-plugin
+codex plugin add delphina@delphina
+codex mcp login delphina
 ```
 
-If you ran those from inside Claude Code, run `/reload-plugins` to activate the
-plugin; from a shell, just start Claude Code. Then run `/delphina:setup`, which
-checks the connection and walks through the optional pieces. Then run any Delphina tool — the
-first call opens a browser to sign in to Delphina, and Claude Code stores the
-OAuth credential for you.
-
-To install for a single project rather than for your user account, add
-`--scope project` (checked into the repo) or `--scope local` (only you, only this
-project) to the `install` command.
+The last command opens a browser to sign in to Delphina, and Codex stores the
+OAuth credential for you. Then start a new Codex session and ask it to "set up
+Delphina", which checks the connection and offers the knowledge base.
 
 ### Keeping it up to date
 
-Claude Code disables auto-update for third-party marketplaces by default. We
-recommend turning it on so you pick up new Delphina tools as they ship:
-
-1. Run `/plugin` in Claude Code
-2. Select **Marketplaces**
-3. Choose `delphina`
-4. Select **Enable auto-update**
-
-To update by hand instead:
+Codex does not update plugins on its own. To pick up a new release:
 
 ```bash
-claude plugin marketplace update delphina
-claude plugin update delphina@delphina
+codex plugin marketplace upgrade delphina
+codex plugin add delphina@delphina
 ```
+
+Then start a new session.
 
 ## Knowledge sync
 
-Ask Claude to "sync the Delphina knowledge base" (or just ask a question about
+Ask Codex to "sync the Delphina knowledge base" (or just ask a question about
 your metrics) and it will pull a snapshot to
 `.delphina/knowledge/<workspace-id>/` — one markdown file per document, laid out
 as `<namespace>/<type>/<name>.md`.
 
-You do not have to say which workspace. Claude syncs your default one, and can
+You do not have to say which workspace. Codex syncs your default one, and can
 call `list_workspaces` to show you the alternatives if you have more than one.
 
-From then on Claude answers definition questions by reading those files, with no
+The download needs network access, which Codex's default sandbox blocks, so
+Codex asks you to approve it. You can save that approval for the download
+script, and later syncs will not ask again until the plugin is updated.
+
+From then on Codex answers definition questions by reading those files, with no
 round-trip to Delphina. The cache is git-ignored automatically, so it never lands
 in your repository.
 
-Syncs are pinned to a snapshot id and are free when nothing has changed: Claude
+Syncs are pinned to a snapshot id and are free when nothing has changed: Codex
 sends back the id it already has, and an unchanged knowledge base transfers no
 bytes at all. Sync once per session; the snapshot is read-only, and editing the
 files changes nothing in Delphina.
@@ -77,72 +73,9 @@ the wrong place. If that happens, update the plugin — the error says how.
 
 ## Trace capture
 
-**Off by default, and off until two separate people turn it on** — a Delphina
-administrator for the organization, and you for this machine. Run `/delphina:setup`
-to enable it locally; it explains what is collected before changing anything.
-
-When capture is on, sessions **that used Delphina** have their transcript
-uploaded to your Delphina organization, where they improve the knowledge base
-your team's agent reasons over. A session counts as having used Delphina if it
-either called a Delphina tool, or ran a tool against a knowledge base
-`sync_knowledge` had cached to `.delphina/knowledge/`.
-
-Read that scope carefully before enabling it:
-
-- A Claude Code transcript is the whole session — your source, your shell
-  output, and the results from your **other** MCP servers — not only the parts
-  involving Delphina.
-- **Any admin of your Delphina organization can read an uploaded transcript.**
-  Not only you, and not only the parts about Delphina.
-- The filter is per session, not per turn. A session that used Delphina is
-  eligible in full, including what came before it did.
-- Grepping a knowledge base you synced earlier counts, even in a session that
-  never contacts Delphina. That is the point of syncing, and a session spent
-  reading your metric definitions is as much about Delphina as one that asks
-  over MCP. Only tools pointed at the cache count; a document that merely
-  mentions the path does not.
-- Sessions that do neither are never uploaded, and are not read at all while
-  capture is off.
-- `cwd` is removed from every entry before upload, so filesystem paths do not
-  travel with it.
-
-Turn it off at any time:
-
-```bash
-printf '{"enabled": false}\n' > ~/.delphina/traces.json
-```
-
-Uninstalling the plugin removes the hook entirely.
-
-### Checking whether it is working
-
-The uploader is silent by design. It runs on every turn, and a hook that writes
-to your terminal — or exits non-zero, which Claude Code reads as "do not stop" —
-would interrupt your work to report on telemetry. The cost is that "did that
-upload?" has no visible answer.
-
-Set `DELPHINA_TRACE_DEBUG=1` to get one:
-
-```bash
-DELPHINA_TRACE_DEBUG=1 claude
-```
-
-Outcomes are appended to `~/.delphina/upload.log`, one line per turn:
-
-```
-2026-08-27T22:14:03Z ok: [abc123] accepted, server offset now 48210
-2026-08-27T22:15:41Z stop: [abc123] session called no Delphina tool, so none of it is eligible
-2026-08-27T22:16:02Z denied: [abc123] 403, organization has not enabled trace capture
-```
-
-The log records statuses, byte counts, and skip reasons — never your transcript
-and never your token. It is written only while the variable is set, and the file
-is truncated once it passes 256 KB.
-
-Without the flag, the same states are still readable from
-`~/.delphina/offsets/<session-id>`: it holds the byte offset the server has
-acknowledged, so a number that grows means uploads are landing. A sibling file
-ending in `.disabled` means your organization has capture switched off.
+Not available in the Codex plugin yet. The Claude Code plugin can upload
+sessions that used Delphina to improve your team's knowledge base; the Codex
+version is planned for a later release.
 
 ## Configuration
 
@@ -150,23 +83,15 @@ The plugin points at Delphina's production MCP server,
 `https://app.delphina.ai/api/mcp`. That is the right value for essentially
 everyone, and there is nothing to configure.
 
-If Delphina gave you a different URL for your deployment, set `DELPHINA_MCP_URL`
-before starting Claude Code:
+If Delphina gave you a different URL for your deployment, override it in
+`~/.codex/config.toml`:
 
-```bash
-export DELPHINA_MCP_URL=https://your-host.example.com/api/mcp
+```toml
+[mcp_servers.delphina]
+url = "https://your-host.example.com/api/mcp"
 ```
 
-To make it stick, put it in your shell profile, or in the `env` block of your
-Claude Code [settings file](https://code.claude.com/docs/en/settings):
-
-```json
-{
-  "env": {
-    "DELPHINA_MCP_URL": "https://your-host.example.com/api/mcp"
-  }
-}
-```
+Or for a single run: `codex -c 'mcp_servers.delphina.url="https://your-host.example.com/api/mcp"'`.
 
 ### Authorizing without OAuth
 
@@ -175,54 +100,33 @@ your Delphina account. If you are in an environment that cannot complete a brows
 sign-in — CI, a headless container — use an API key instead.
 
 In Delphina, go to **Settings → Connect to Delphina MCP → General**, expand
-**API Key Authorization**, and copy the **Authorization Header** value. Then
-configure the server directly rather than through this plugin:
+**API Key Authorization**, and copy the key. Put it in an environment variable,
+without the `Bearer ` prefix, and point the server at it:
 
 ```bash
-claude mcp add --scope user --transport http delphina https://app.delphina.ai/api/mcp \
-  --header "Authorization: Bearer YOUR_API_KEY"
+export DELPHINA_API_KEY=YOUR_API_KEY
+codex mcp add delphina --url https://app.delphina.ai/api/mcp \
+  --bearer-token-env-var DELPHINA_API_KEY
 ```
 
 Treat that key like a password. Do not commit it.
 
-## Deploying to a team
-
-On a Team or Enterprise plan, an administrator can push this marketplace to every
-seat through [managed settings](https://code.claude.com/docs/en/permissions#managed-settings),
-so engineers do not run the `marketplace add` step themselves:
-
-```json
-{
-  "extraKnownMarketplaces": {
-    "delphina": {
-      "source": {
-        "source": "github",
-        "repo": "delphina-ai/claude-plugin"
-      },
-      "autoUpdate": true
-    }
-  },
-  "enabledPlugins": { "delphina@delphina": true }
-}
-```
-
-`autoUpdate` turns on background updates fleet-wide, so seats do not have to
-toggle it individually.
-
 ## What's in here
 
-This repository is both a Claude Code plugin and a single-plugin marketplace:
+This repository is both a Codex plugin and a single-plugin marketplace:
 
-| Path                              | Purpose                                                       |
-| --------------------------------- | ------------------------------------------------------------- |
-| `.claude-plugin/plugin.json`      | Plugin manifest — name, version, and metadata                  |
-| `.claude-plugin/marketplace.json` | Marketplace catalog listing this plugin at the repository root |
-| `.mcp.json`                       | The Delphina MCP server definition                             |
-| `skills/sync-knowledge/`          | The knowledge-base sync skill                                  |
-| `scripts/apply-snapshot.sh`       | Downloads, version-checks, and atomically installs a snapshot  |
-| `commands/setup.md`               | `/delphina:setup` — connection check, knowledge base, traces   |
-| `hooks/hooks.json`                | Runs the uploader on Stop and SessionEnd                       |
-| `scripts/upload-transcript.sh`    | Uploads the new part of an eligible session's transcript       |
+| Path                               | Purpose                                                        |
+| ---------------------------------- | -------------------------------------------------------------- |
+| `.codex-plugin/plugin.json`        | Plugin manifest — name, version, and metadata                  |
+| `.agents/plugins/marketplace.json` | Marketplace catalog listing this plugin at the repository root |
+| `.mcp.json`                        | The Delphina MCP server definition                             |
+| `skills/setup/`                    | Connection check, sign-in, and the optional knowledge base     |
+| `skills/sync-knowledge/`           | The knowledge-base sync skill                                  |
+| `scripts/apply-snapshot.sh`        | Downloads, version-checks, and atomically installs a snapshot  |
+
+This repository started as a copy of `delphina-ai/claude-plugin` at 0.6.0. The
+two plugins share server-side contracts — the snapshot layout version, and later
+the trace upload API — so a change to one of those ships in both.
 
 ## Support
 

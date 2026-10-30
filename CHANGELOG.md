@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.1.0
+
+First release for Codex. This repository is a copy of `delphina-ai/claude-plugin`
+at 0.6.0, rebuilt around Codex's plugin format.
+
+- **Codex manifests.** `.codex-plugin/plugin.json` and a marketplace at
+  `.agents/plugins/marketplace.json`, so `codex plugin marketplace add
+  delphina-ai/codex-plugin` and `codex plugin add delphina@delphina` work.
+- **A literal MCP URL.** Claude Code expands `${DELPHINA_MCP_URL:-...}` in
+  `.mcp.json`; nothing says Codex does, and `codex mcp list` showed the text
+  verbatim. Override the URL in `config.toml` instead.
+- **Setup is a skill.** Codex has no slash-command files, so `/delphina:setup`
+  became `delphina:setup`. It covers `codex mcp login delphina`, which Codex
+  needs before any Delphina tool appears.
+- **The sync skill finds its script by path.** It named the script through
+  `${CLAUDE_PLUGIN_ROOT}`, which Codex does not substitute in skill text. It now
+  names it relative to `SKILL.md`, and asks for sandbox escalation up front: the
+  default sandbox has no network, and the presigned URL expires in about 15
+  minutes, too short to waste on a failed first attempt.
+- **No trace capture yet.** The uploader parses Claude Code transcripts only,
+  so it and its hooks are left out until a Codex parser exists.
+
+Entries below are from `claude-plugin`, kept for the reasoning behind code this
+repository inherited.
+
 ## 0.6.0
 
 - **A rejected credential now stops the session asking again.** A 401 fell

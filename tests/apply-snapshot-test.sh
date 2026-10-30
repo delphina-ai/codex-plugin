@@ -18,7 +18,9 @@ port="${TEST_PORT:-8791}"
 server_pid=""
 
 cleanup() {
-  [[ -n "$server_pid" ]] && kill "$server_pid" 2>/dev/null || true
+  if [[ -n "$server_pid" ]]; then
+    kill "$server_pid" 2>/dev/null || true
+  fi
   rm -rf "$work"
 }
 trap cleanup EXIT
@@ -122,7 +124,7 @@ echo "refuses a layout it cannot read"
 run --url "http://127.0.0.1:$port/future.zip" --workspace ws-1 --snapshot "ghi_public_v99" && rc=0 || rc=$?
 check "exits non-zero" "1" "$rc"
 check "names the update command" "yes" \
-  "$(grep -q 'claude plugin update' "$work/err" && echo yes || echo no)"
+  "$(grep -q 'codex plugin marketplace upgrade' "$work/err" && echo yes || echo no)"
 check "keeps the old cache" "abc_public_v1" "$(cat "$root/ws-1/.snapshot-id")"
 
 echo "refuses a snapshot with no layout at all"
