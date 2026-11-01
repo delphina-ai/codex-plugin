@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.2.0
+
+- **One-off definition questions are answered by search, not a download.**
+  The sync-knowledge skill now sends a single lookup, such as how a metric is
+  defined or which table holds a column, to `search_knowledge` and
+  `read_knowledge_document`, which Delphina's MCP server serves from its
+  knowledge search index. A full sync is still the choice for a session that
+  leans on the data model throughout, and whenever the user asks for one.
+- **The sync stays the fallback.** When search is missing, says it is not
+  available for the workspace, or finds nothing in a workspace that has not
+  been indexed yet, the skill syncs instead, so a deployment or workspace
+  without search loses nothing.
+- **Search asks for no approval.** It is MCP calls only, so unlike a sync's
+  download it needs no sandbox escalation.
+
 ## 0.1.0
 
 First release for Codex. This repository is a copy of `delphina-ai/claude-plugin`

@@ -9,9 +9,9 @@ back results, and file issues — the same agent you get in the web app and in
 Slack. Delphina answers using your team's warehouse and curated knowledge base;
 Codex sees the answers, not the underlying data.
 
-It can also sync your **knowledge base** — the curated metrics, tables, notes, and
-rules Delphina reasons over — to a local folder, so Codex can grep your team's
-definitions directly instead of asking one question at a time. See
+It can also read your **knowledge base** — the curated metrics, tables, notes, and
+rules Delphina reasons over. Codex searches it for a one-off definition, or syncs
+it to a local folder and greps your team's definitions directly. See
 [Knowledge sync](#knowledge-sync).
 
 > **Beta.** The Delphina MCP server is in beta and must be enabled for your
@@ -46,8 +46,12 @@ Then start a new session.
 
 ## Knowledge sync
 
-Ask Codex to "sync the Delphina knowledge base" (or just ask a question about
-your metrics) and it will pull a snapshot to
+For a single question, such as how a metric is defined or which table holds a
+column, Codex searches the knowledge base with `search_knowledge` and reads only
+the documents it needs. Nothing is downloaded.
+
+When a session leans on your definitions throughout, or when you ask Codex to
+"sync the Delphina knowledge base", it pulls a snapshot to
 `.delphina/knowledge/<workspace-id>/` — one markdown file per document, laid out
 as `<namespace>/<type>/<name>.md`.
 
